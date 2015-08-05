@@ -112,31 +112,23 @@ ufo_sum_task_process (UfoTask *task,
     pthread_t thr[(int) req.dims[2]];
     sum_thread thr_data[(int) req.dims[2]];
 
-    
+
 
     int rc;    
     float result[(int) size];
-    
 
 
-    for(i=0; i < size;i++)
-    {
-        result[i] = 0;
-    }
-//    memset(result,0,size*sizeof(gfloat));
+    memset(result,0,size*sizeof(gfloat));
 
 
-    // pthread_mutex_init(thr_data->mutex,NULL);
     for (n = 0; n < req.dims[2]; n++) {
 
-              // pthread_mutex_init(thr_data[n].mutex,NULL);
         thr_data[n].mutex = &loc_mutex;
-
         thr_data[n].tid = n;
         thr_data[n].ptr = in_mem + n*size; //always jump to the next picture
         thr_data[n].size = size;
         thr_data[n].result = result; //always jump one further
-                                //thread       //func //data structure
+        //thread       //func //data structure
         if ((rc = pthread_create(&thr[n], NULL, sum, &thr_data[n]))) {
             fprintf(stderr, "error: pthread_create, rc: %d\n", rc);
         }
@@ -144,7 +136,6 @@ ufo_sum_task_process (UfoTask *task,
 
 
     }
-
 
 
 
@@ -156,19 +147,17 @@ ufo_sum_task_process (UfoTask *task,
 
     if(pthread_mutex_destroy(&loc_mutex) == -1)
     {       
-       printf("ERROR\n");
+        printf("ERROR\n");
     }   
 
 
 
+    for (i = 0; i < size; i++) {
+        if (out_mem[i] > 0.0001)
+            out_mem[i] = 1.0f;
+    }
 
-//why only in the first output?
-for (i = 0; i < size; i++) {
-    if (out_mem[i] > 0.0001)
-        out_mem[i] = 1.0f;
-}
-
-return TRUE;
+    return TRUE;
 }
 
     static void
