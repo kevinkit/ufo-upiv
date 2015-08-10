@@ -109,8 +109,8 @@ ufo_sum_task_process (UfoTask *task,
 
 
     unsigned n,i;
-    pthread_t thr[(int) req.dims[2]];
-    sum_thread thr_data[(int) req.dims[2]];
+    pthread_t thr[(unsigned int) req.dims[2]];
+    sum_thread thr_data[(unsigned int) req.dims[2]];
 
 
 
@@ -123,7 +123,6 @@ ufo_sum_task_process (UfoTask *task,
         thr_data[n].ptr = in_mem + n*size; //always jump to the next picture
         thr_data[n].size = size;
         thr_data[n].result = out_mem; //always jump one further
-        //thread       //func //data structure
         if ((rc = pthread_create(&thr[n], NULL, sum, &thr_data[n]))) {
             fprintf(stderr, "error: pthread_create, rc: %d\n", rc);
         }

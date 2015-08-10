@@ -1,14 +1,16 @@
-__kernel void cut(__global float* in_mem, global float* out_mem, float sigma)
+__kernel void cut(__global float* in_mem, global float* out_mem, float sigma_top, float sigma_bottom)
 {
     int id = get_global_id(0);
 
-    if(in_mem[id] > sigma)
+
+    //Within the threshold
+    if((in_mem[id] <  sigma_top) &&  (in_mem[id] > sigma_bottom))
     {
-            out_mem[id] = 3*sigma;
+        out_mem[id] = in_mem[id];
     }
-    if(in_mem[id] < sigma)
+    else
     {
-        out_mem[id] = -3*sigma;
+        out_mem[id] = 0;
     }
 
 

@@ -17,7 +17,6 @@ typedef struct _sum_thread{
 void* sum(void *arg)
 {
     sum_thread *data = (sum_thread*) arg;
-    //  printf("HELLO FROM THREAD %d\n", data->tid);
 
 
     if(data->tid % 2 == 0)
@@ -52,7 +51,12 @@ void* sum(void *arg)
         }
 
     }
-    return NULL;
+
+
+    pthread_exit(NULL);
+
+
+
 }
 
 

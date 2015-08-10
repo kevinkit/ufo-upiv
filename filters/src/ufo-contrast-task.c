@@ -42,7 +42,8 @@ struct _UfoContrastTaskPrivate {
 
     cl_context context;
     cl_kernel cut_kernel;
-    cl_float window_size;
+    cl_float sigma_top;
+    cl_float sigma_bottom;
     gboolean remove_high;
 
 
@@ -57,11 +58,12 @@ G_DEFINE_TYPE_WITH_CODE (UfoContrastTask, ufo_contrast_task, UFO_TYPE_TASK_NODE,
 
 #define UFO_CONTRAST_TASK_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE((obj), UFO_TYPE_CONTRAST_TASK, UfoContrastTaskPrivate))
 
-    enum {
+enum {
         PROP_0,
-        PROP_SIGMA,
+        PROP_SIGMA_TOP,
+        PROP_SIGMA_BOTTOM,
         N_PROPERTIES
-    };
+};
 
 static GParamSpec *properties[N_PROPERTIES] = { NULL, };
 
@@ -136,20 +138,26 @@ ufo_contrast_task_process (UfoTask *task,
     cl_mem out_mem_gpu;
     gsize mem_size_c;
     
+    float mean = 0;
+    float std = 0;
+    float top_cut;
+    float bottom_cut;
 
-        node = UFO_GPU_NODE (ufo_task_node_get_proc_node (UFO_TASK_NODE (task)));
+    unsigned amount;
+
+
+    node = UFO_GPU_NODE (ufo_task_node_get_proc_node (UFO_TASK_NODE (task)));
     cmd_queue = ufo_gpu_node_get_cmd_queue (node);
 
-   profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
+    profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
 
 
     gfloat* in_mem = ufo_buffer_get_host_array(inputs[0], NULL);
     in_mem_gpu = ufo_buffer_get_device_array(inputs[0],cmd_queue);
     out_mem_gpu = ufo_buffer_get_device_array(output,cmd_queue);
     
-    float mean = 0; 
-    float std = 0;
-    unsigned amount = input_req.dims[1] * input_req.dims[0];
+    amount = input_req.dims[1] * input_req.dims[0];
+    
     //compute std derivation
     
 
@@ -158,7 +166,6 @@ ufo_contrast_task_process (UfoTask *task,
     {
         for(unsigned i=0; i < input_req.dims[0]; i++)
         {       
-            //mean += (in_mem[i + j*input_req.dims[0]] / amount);
             mean += in_mem[i + j*input_req.dims[0]];
         }       
 
@@ -175,23 +182,17 @@ ufo_contrast_task_process (UfoTask *task,
 
     }
 
-    std = sqrt((std/(amount)));// * (priv->window_size);
-    std *= priv->window_size; 
-
-    printf("WINDOW SIZE = %f", priv->window_size);
-    printf("amount = %d\n", amount);
-    printf("MEAN VAR = %f\n", mean);
-    printf("STD = %f\n", std);
-
+    std = sqrt((std/(amount)));
+    top_cut = priv->sigma_top * std;
+    bottom_cut = priv->sigma_bottom * std;
 
     mem_size_c = (gsize) amount;
-
-    
     
 
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,0,sizeof(cl_mem), &in_mem_gpu));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,1,sizeof(cl_mem), &out_mem_gpu));
-    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,2,sizeof(cl_float), &std));
+    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,2,sizeof(cl_float), &top_cut));
+    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,3,sizeof(cl_float), &bottom_cut));
 
 
     ufo_profiler_call(profiler,cmd_queue, priv->cut_kernel,1,&mem_size_c,NULL);
@@ -208,10 +209,14 @@ ufo_contrast_task_set_property (GObject *object,
     UfoContrastTaskPrivate *priv = UFO_CONTRAST_TASK_GET_PRIVATE (object);
 
     switch (property_id) {
-        case PROP_SIGMA:
-            priv->window_size = g_value_get_float(value);
+        case PROP_SIGMA_TOP:
+            priv->sigma_top = g_value_get_float(value);
             break;
 
+
+        case PROP_SIGMA_BOTTOM:
+            priv->sigma_bottom = g_value_get_float(value);
+            break;   
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
             break;
@@ -227,9 +232,12 @@ ufo_contrast_task_get_property (GObject *object,
     UfoContrastTaskPrivate *priv = UFO_CONTRAST_TASK_GET_PRIVATE (object);
 
     switch (property_id) {
-        case PROP_SIGMA:
-            g_value_set_float(value, priv->window_size);
+        case PROP_SIGMA_TOP:
+            g_value_set_float(value, priv->sigma_top);
             break;
+
+        case PROP_SIGMA_BOTTOM:
+            g_value_set_float(value,priv->sigma_bottom);
 
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -272,12 +280,22 @@ ufo_contrast_task_class_init (UfoContrastTaskClass *klass)
     gobject_class->get_property = ufo_contrast_task_get_property;
     gobject_class->finalize = ufo_contrast_task_finalize;
 
-    properties[PROP_SIGMA] =
-        g_param_spec_float ("sigma",
+    properties[PROP_SIGMA_TOP] =
+        g_param_spec_float ("sigma_top",
                 "defines the window size, thus the threshold",
                 "defines the widnow size, thus the threshold",
                 1, G_MAXFLOAT, 5,
                 G_PARAM_READWRITE);
+
+    properties[PROP_SIGMA_BOTTOM] =
+        g_param_spec_float ("sigma_bottom",
+                "defines the window size, thus the threshold",
+                "defines the widnow size, thus the threshold",
+                1, G_MAXFLOAT, 5,
+                G_PARAM_READWRITE);
+
+
+
 
     for (guint i = PROP_0 + 1; i < N_PROPERTIES; i++)
         g_object_class_install_property (gobject_class, i, properties[i]);
