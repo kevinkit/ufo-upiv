@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Authored by: Alexandre Lewkowicz (lewkow_a@epita.fr)
+ * Authored by: Kevin Höfle (kevinahoefle@gmail.com)
  */
 
 
@@ -42,8 +42,8 @@ struct _UfoContrastTaskPrivate {
 
     cl_context context;
     cl_kernel cut_kernel;
-    cl_float sigma_top;
-    cl_float sigma_bottom;
+    gfloat sigma_top;
+    gfloat sigma_bottom;
     gboolean remove_high;
 
 
@@ -119,48 +119,86 @@ ufo_contrast_task_get_mode (UfoTask *task)
 }
 
 
-    static void
-imadjust (UfoBuffer *ufo_src, UfoBuffer *ufo_dst, double low, double high,
-        double gamma, float new_high)
+static int get_pos(int x,int y,int w,int offset)
 {
-    UfoRequisition req;
-    ufo_buffer_get_requisition (ufo_src, &req);
-    float *src = ufo_buffer_get_host_array(ufo_src, NULL);
-    float *dst = ufo_buffer_get_host_array(ufo_dst, NULL);
+    return x+y*w + offset;
+}
 
-    for (unsigned j = 0; j < req.dims[1]; ++j) {
-        for (unsigned i = 0; i < req.dims[0]; ++i) {
-            if (src[i + j * req.dims[0]] >= high)
-                dst[i + j * req.dims[0]] = new_high;
-            else if (src[i + j * req.dims[0]] <= low)
-                dst[i + j * req.dims[0]] = 0.0;
-            else {
-                double normalized = (src[i + j * req.dims[0]] - low) / (double) (high - low);
-                double val = pow(normalized, gamma);
-                dst[i + j * req.dims[0]] = (float) val;
-            }
-        }
+
+
+static int test_area(int refpoint, int alt, int start,int real)
+{
+    if(start + alt >= real)
+    {
+        printf("INDEX EXCEEDS MATRIX DIMENSION! CHANGING SIZE FROM %d to %d\n",alt,real - start);
+        return real - start;
+    }
+    else
+    {
+        return alt;
     }
 }
 
-
-static int get_pos(int x,int y,int w)
+static float get_mean(float* input, unsigned counter, int* coordinates)
 {
-    return x+y*w;
+    float mean = 0;
+    if(coordinates != NULL)
+    { 
+        for(unsigned i = 0; i < counter;i++)
+        {
+            mean += input[coordinates[i]];
+        }
+    }
+    else
+    {
+        for(unsigned i = 0; i < counter; i++)
+        {
+            mean += input[i];
+        }
+    } 
+    return (mean/counter);
+}
+
+static float get_std(float* input, unsigned counter, float mean,int* coordinates)
+{
+    float std = 0;
+
+
+    if(coordinates != NULL)
+    {
+        for(unsigned i = 0; i < counter; i ++)
+        {
+            std += pow(input[coordinates[i]] - mean,2);
+        }
+    }
+    else
+    {
+        for(unsigned i = 0; i < counter; i++)
+        {
+            std += pow(input[i] - mean,2);
+        }
+    }
+    
+    return (sqrt((std/counter)));
 }
 
 
-//Will return the middle IDs
-//x = lines y = rows 
-// x_0/y_0 OFFSET refering to the whole image 
-//len_y = Lenght of one peace
-//real_len_y = length of whole image
-//how many times the image was split up
 
-static int get_real_pos(int x_til,int y_til, int x_0, int y_0,int len_y,int real_len_y,int parts)
+
+static void thresh_counter(float* input,unsigned * counter, int* coordinates,float top_cut,float bottom_cut,int k)
 {
-    int refpoint = get_pos((parts >> 2) * x_0, (parts >> 2) * y_0,real_len_y);
-    return (refpoint + get_pos(x_til,y_til,parts*len_y));
+    for(unsigned i=0; i < counter[k-1]; i++)
+    {
+        if(input[coordinates[i]] >= top_cut || input[coordinates[i]] <= bottom_cut)
+        {
+            input[coordinates[i]] = 0;
+        }
+        else
+        {
+            coordinates[counter[k]] = coordinates[counter[k]];
+            counter[k]++;
+        }
+    }
 
 }
 
@@ -186,20 +224,11 @@ ufo_contrast_task_process (UfoTask *task,
     cl_mem out_mem_gpu;
     gsize mem_size_c;
 
-    float mean = 0;
-    float std = 0;
-    float top_cut;
-    float bottom_cut;
-    float tmp_std;
-
-    unsigned amount;
-    unsigned real_amount;
 
     node = UFO_GPU_NODE (ufo_task_node_get_proc_node (UFO_TASK_NODE (task)));
     cmd_queue = ufo_gpu_node_get_cmd_queue (node);
 
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
-
 
 
     gfloat* in_mem = ufo_buffer_get_host_array(inputs[0], NULL);
@@ -209,65 +238,92 @@ ufo_contrast_task_process (UfoTask *task,
 
 
 
+
+    float mean = 0;
+    float std = 0;
+    float top_cut;
+    float bottom_cut;
+    float tmp_std;
+    float tmp_mean;
+
+    unsigned alt_amount;
+    unsigned real_amount;
+
     
-    //compute std derivation
+    unsigned h = input_req.dims[0];
+    unsigned w = input_req.dims[1];
 
-    int cut = 32;
+    unsigned alt_h = 400;
+    unsigned alt_w = 400;
 
-    unsigned size_x_com = input_req.dims[0];
-    unsigned size_y_com = input_req.dims[1];
+    unsigned start_x = 500; //where in the line
+    unsigned start_y = 500; //which line
 
-    unsigned size_x = size_x_com/cut;
-    unsigned size_y = size_y_com/cut;
+    unsigned ref_point = get_pos(start_x,start_y,w,0);
+
+    float init_top  = priv->sigma_top;
+    float init_bottom = priv->sigma_bottom;
 
 
     real_amount = (input_req.dims[1] * input_req.dims[0]);
-    amount = 4*size_x*size_y;
+    alt_amount = alt_h*alt_w;
 
+    int coordinates[real_amount]; 
+
+    alt_h = test_area(ref_point, alt_h,start_y,h);
+    alt_w = test_area(ref_point, alt_w,start_x,w);
+
+    unsigned cnt[100];
+
+    
+    //At each loop the std will be calculated on a new data set which were cut in the 
+    //loop before till the change is not over a certain percantage (5%)
 
     for(unsigned k = 0; k < 100; k++)
     {
         //compute mean
         mean = 0;
         std = 0;
+        cnt[k] = 0;
 
-        for(unsigned i = 0; i < size_x*2; i++)
+        //First calculation
+        if(k==0)
         {
-            for(unsigned j = 0; j < size_y*2; j++)
-            {
-                mean += in_mem[get_real_pos(j,k,size_x,size_y,size_y,size_y_com,cut)];
-           //     printf("in_mem[%d] = %f\t", get_real_pos(j,i,size_x,size_y,size_y,size_y_com,cut), in_mem[get_real_pos(j,k,size_x,size_y,size_y,size_y_com,cut)]);
-                if(j % 4 == 0)
-                {
-            //        printf("\n");
-                }
 
-
-            }
-         //   printf("\n");
+            //The first calculation still works with the normal x,y coordinates
             
+            //Calculate Mean:
+            for(unsigned i = 0; i < alt_h; i++)
+            {
+                for(unsigned j = 0; j < alt_w; j++)
+                {
+                    mean += in_mem[get_pos(j,i,w,ref_point)];
+                }
+            }
 
+            mean /= alt_amount;
+
+            //STD Derivation
+            for(unsigned i = 0; i < alt_h; i++)
+            {
+                for(unsigned j = 0; j < alt_w; j++)
+                {       
+                    std += pow(in_mem[get_pos(j,i,w,ref_point)] - mean,2);
+                }      
+            }
+
+            std = sqrt((std/(alt_amount)));
         }
-
-
-        mean /= amount;
-
-
-        for(unsigned i = 0; i < size_x*2; i++)
+        else
         {
-            for(unsigned j = 0; j < size_y*2; j++)
-            {       
-                std += pow(in_mem[get_real_pos(j,i,size_x,size_y,size_y,size_y_com,cut)] - mean,2);
-            }      
+            //All calculations after first one
+            //Updating the mean and the std
 
+            mean = get_mean(in_mem,cnt[k-1],coordinates);
+            std = get_std(in_mem, cnt[k-1], mean, coordinates);
         }
 
-
-
-        std = sqrt((std/(amount)));
-
-
-
+        //Check old std to new
         if(std == 0)
         {
             break;
@@ -279,44 +335,66 @@ ufo_contrast_task_process (UfoTask *task,
         }
         else
         {
-            if(fabs(tmp_std - std)/std < 0.05)
+            //if the std derivation does not change much anyome stop execution
+            if(fabs(tmp_std - std)/tmp_std < 0.09)
             { 
-                printf("old = %f, new = %f\n", tmp_std, std);  
-             break;
+                break;
             }   
+        }
+
+        //Adjust the window
+        top_cut = mean + (init_top/(k+1))*std;
+        bottom_cut = mean - (init_bottom/(k+1))*std;
+
+        if(k == 0)
+        {
+            //First calculation
+            for(unsigned i = 0; i < alt_h; i++)
+            {
+                for(unsigned j = 0; j < alt_w; j++)
+                {
+                    if((in_mem[get_pos(j,i,w,ref_point)] >= top_cut) || (in_mem[get_pos(j,i,w,ref_point)] <= bottom_cut))
+                    {
+                        in_mem[get_pos(j,i,w,ref_point)] = 0;
+                    }
+                    else
+                    {
+                        //Save coordinates that are not zero for the next iteration
+                        coordinates[cnt[k]] = get_pos(j,i,w,ref_point);
+                        cnt[k]++;;
+                    }
+                }
+            }
+        }
+        else
+        {
+            //Thresh the picture according to the window and count how many parts are not zero (in cnt[k]
+            thresh_counter(in_mem,cnt,coordinates,top_cut,bottom_cut,k);
+
+            //check if values are all set to zero, if yes stop execution
+            if(cnt[k] == 0)
+            {
+                break; 
+            }  
             else
             {
-                                printf("old = %f, new = %f\n", tmp_std, std); 
-                 tmp_std = std;
-            }
-        }
-
-        top_cut = mean + priv->sigma_top * std;
-        bottom_cut = mean - priv->sigma_bottom * std;
-        printf("Top cut = %f \t bottom cut = %f \t \n mean = %f \tstd-der = %f\n", top_cut , bottom_cut, mean, std);
-        
-        for(unsigned i = 0; i < size_x*2; i++)
-        {
-            for(unsigned j = 0; j < size_y*2; j++)
-            {
-                if(in_mem[get_real_pos(j,i,size_x,size_y,size_y,size_y_com,cut)] > top_cut && in_mem[get_real_pos(j,i,size_x,size_y,size_y,size_y_com,cut)] < bottom_cut)
-                {
-                    in_mem[get_real_pos(j,i,size_x,size_y,size_y,size_y_com,cut)] = 0;
-                }
-                
-            }
+                //Update tmp std and tmp mean
+                tmp_std = std;
+                tmp_mean = mean;
+            } 
 
         }
-
-
-   
     }
 
 
-    
+    //use the found mean and std to adjust the right threshhold
+    bottom_cut = tmp_mean + 2*tmp_std;
+    top_cut = tmp_mean +  5*tmp_std;
+
     mem_size_c = (gsize) real_amount;
 
-
+    
+    //Do threshhold on the whole picture  on GPU
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,0,sizeof(cl_mem), &in_mem_gpu));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,1,sizeof(cl_mem), &out_mem_gpu));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->cut_kernel,2,sizeof(cl_float), &top_cut));
@@ -414,14 +492,14 @@ ufo_contrast_task_class_init (UfoContrastTaskClass *klass)
         g_param_spec_float ("sigma_top",
                 "defines the window size, thus the threshold",
                 "defines the widnow size, thus the threshold",
-                1, G_MAXFLOAT, 5,
+                1, G_MAXFLOAT, 10,
                 G_PARAM_READWRITE);
 
     properties[PROP_SIGMA_BOTTOM] =
         g_param_spec_float ("sigma_bottom",
                 "defines the window size, thus the threshold",
                 "defines the widnow size, thus the threshold",
-                1, G_MAXFLOAT, 5,
+                -10, G_MAXFLOAT, 10,
                 G_PARAM_READWRITE);
 
 
