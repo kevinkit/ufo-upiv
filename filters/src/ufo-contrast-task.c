@@ -256,8 +256,8 @@ ufo_contrast_task_process (UfoTask *task,
     unsigned alt_h = 400;
     unsigned alt_w = 400;
 
-    unsigned start_x = 500; //where in the line
-    unsigned start_y = 500; //which line
+    unsigned start_x = 200; //where in the line
+    unsigned start_y = 200; //which line
 
     unsigned ref_point = get_pos(start_x,start_y,w,0);
 
