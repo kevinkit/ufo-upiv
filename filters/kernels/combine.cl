@@ -18,7 +18,7 @@ __kernel void combine(__global float* in_mem, __global float* out_mem,unsigned  
 	out_mem[id] = tmp1; //first picture does not have a left partner
 	for(;i<loc_counter;i++)
 	{
-		if(in_mem[id + i*loc_mem_p] > 0 && in_mem[id + (1+i)*loc_mem_p])
+		if(in_mem[id + i*loc_mem_p] > 0 && in_mem[id + (1+i)*loc_mem_p] > 0)
 		{
 			tmp2 = 1.0f;
 		}
