@@ -14,6 +14,8 @@ class PivJob(UfoJob):
         ring_step = 2,
         ring_thickness = 6,
         number_of_images = 1,   # input image
+        sigma_top = 2,
+        sigma_bottom = -4,
         start = 0,
         xshift = 0,
         yshift = 0,
@@ -49,7 +51,7 @@ class PivJob(UfoJob):
         self.add_task('crop', x=p.xshift, y=p.yshift, width=1024, height=1024)
         self.add_task('brightness', 'brightness-cut', low=1.0, high=3.0)
         self.add_task('rescale', factor=1.0/scale)
-        self.add_task('contrast', remove_high=0)
+        self.add_task('contrast', sigma_top = p.sigma_top, sigma_bottom = p.sigma_bottom)
         self.add_task('denoise', matrix_size=int(14/scale))
 
         self.add_task('ring_pattern', ring_start=p.ring_start, ring_end=p.ring_end,
