@@ -163,19 +163,11 @@ ufo_combine_test_task_process (UfoTask *task,
     counter = requisition->dims[2]-1;
 
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
-
-
-
-
-    
-
-
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->arithmetic_kernel,0,sizeof(cl_mem), &in_mem_gpu));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->arithmetic_kernel,1,sizeof(cl_mem), &out_mem_gpu));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->arithmetic_kernel,2,sizeof(cl_uint), &counter));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->arithmetic_kernel,3,sizeof(cl_uint), &mem_size_p));
     	
-
 
     ufo_profiler_call(profiler,cmd_queue, priv->arithmetic_kernel,1,&mem_size_c,NULL);
     
