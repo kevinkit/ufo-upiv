@@ -1,15 +1,24 @@
-__kernel void found_cand(__global float* input,__global float* positions,__global float* values, __global unsigned* counter)
+__kernel void found_cand(__global float* input,__global int* positions, __global unsigned* counter)
 {
-    int id = get_global_id(0);
+    int x = get_global_id(0); //first dimension
+    int y = get_global_id(1); //second dimension
+    int w = get_global_size(0); //width
+
+
+    int idx = x + y*w; //get real position
     int old;
-
-    if(input[id] > 0.0)
+    if(input[idx] > 0.0)
     {
-        old  = atomic_inc(&counter[0]);
-        positions[old] = id;
-        values[old] = input[id]; //I do not know if this is necessary
-
+        old = atomic_inc(&counter[0]);
+        positions[old << 1] = x; //save x coordinate
+        positions[(old << 1) + 1] = y; //save y coordinate
     }
+
+
+
+
+
+
 
 
 }

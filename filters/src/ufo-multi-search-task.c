@@ -47,6 +47,8 @@
 #include "ufo-ring-coordinates.h"
 
 
+void* azimutal_wrapper(void* arg);
+
 struct _UfoMultiSearchTaskPrivate {
     /* number of elements desired in computations of polynomial */
 
@@ -56,10 +58,25 @@ struct _UfoMultiSearchTaskPrivate {
     unsigned radii_range;
     float threshold;
     unsigned displacement;
-
-
-
 };
+
+
+
+typedef struct _azimu_thread{
+
+
+    int tid;
+
+    UfoMultiSearchTaskPrivate *priv;
+    UfoBuffer* image;
+    UfoRingCoordinate *center;
+    //Polynomials
+    float *a;
+    float *b;
+    float *c;
+} azimu_thread;
+
+
 
 static void ufo_task_interface_init (UfoTaskIface *iface);
 
@@ -373,16 +390,6 @@ create_profile_advanced (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
     UfoRingCoordinate copy = *center;
 
 
-
-
-
-
-
-
-
-
-
-
     //MULTITHREADING WILL START HERE --> PUT THESE LOOPS INSIDE OF THREADS
     for (int x = -displacement; x <= displacement; ++x) {
         for (int y = -displacement; y <= displacement; ++y) {
@@ -406,6 +413,7 @@ create_profile_advanced (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
     }
 }
 
+
     static char
 center_search (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
         UfoRingCoordinate *src, UfoRingCoordinate *dst)
@@ -426,6 +434,21 @@ center_search (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
     return 0;
 }
 
+
+void* azimutal_wrapper(void* arg)
+{
+    azimu_thread *data = (azimu_thread*) arg;
+
+    create_profile_advanced(data->priv,data->image,data->center,data->a,data->b,data->c);
+
+    pthread_exit(NULL);
+
+}
+
+
+
+
+
     static gboolean
 ufo_multi_search_task_process (UfoTask *task,
         UfoBuffer **inputs,
@@ -441,12 +464,13 @@ ufo_multi_search_task_process (UfoTask *task,
     cl_command_queue cmd_queue;
 
     cl_mem in_mem_gpu;
-    cl_mem values_cand;
     cl_mem coord;
     cl_mem counter;
 
     cl_int error;
 
+    unsigned a,b,counter_cpu;
+    size_t mem_size_c[2];
     node = UFO_GPU_NODE (ufo_task_node_get_proc_node (UFO_TASK_NODE (task)));
     cmd_queue = ufo_gpu_node_get_cmd_queue (node);
 
@@ -455,139 +479,164 @@ ufo_multi_search_task_process (UfoTask *task,
 
     UfoRequisition req;
 
-
     ufo_buffer_get_requisition(inputs[1],&req);
 
-    unsigned a = req.dims[0];
-    unsigned b = req.dims[1];
-    size_t mem_size_c = (size_t) (a*b);
+    a = req.dims[0];
+    b = req.dims[1];
 
+    mem_size_c[0]= (size_t) a;
+    mem_size_c[1]= (size_t) b;
 
     UfoMultiSearchTaskPrivate *priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE (task);
 
     //is filled before
     in_mem_gpu = ufo_buffer_get_device_array(inputs[1], cmd_queue);
+    URCS *dst = (URCS *) ufo_buffer_get_host_array(output, NULL);
 
-    guint counter_cpu[1];
 
-    counter_cpu[0] = 0;
 
-    //Will all be filled by the kernel
-    values_cand = clCreateBuffer(priv->context, CL_MEM_READ_WRITE, sizeof(gfloat) *mem_size_c , NULL, &error);
+
+    ufo_buffer_get_requisition(inputs[1],&req);
+
+    a = req.dims[0];
+    b = req.dims[1];
+
+    mem_size_c[0]= (size_t) a;
+    mem_size_c[1]= (size_t) b;
+
+    counter_cpu = 0;
+
+    coord = clCreateBuffer(priv->context, CL_MEM_READ_WRITE,sizeof(cl_int) * (2*mem_size_c[0]*mem_size_c[1])  ,NULL,&error);
     UFO_RESOURCES_CHECK_CLERR(error);
-    coord = clCreateBuffer(priv->context, CL_MEM_READ_WRITE,sizeof(gfloat) * mem_size_c ,NULL,&error);
-    UFO_RESOURCES_CHECK_CLERR(error);
-
-    counter = clCreateBuffer(priv->context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,sizeof(guint), counter_cpu, &error);
-
+    counter = clCreateBuffer(priv->context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,sizeof(cl_uint), &counter_cpu, &error);
     UFO_RESOURCES_CHECK_CLERR(error);
 
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,0,sizeof(cl_mem),&in_mem_gpu));
-    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,1,sizeof(cl_mem),&values_cand));
-    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,2,sizeof(cl_mem),&coord));
-    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,3,sizeof(cl_mem),&counter));
+    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,1,sizeof(cl_mem),&coord));
+    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,2,sizeof(cl_mem),&counter));
 
 
 
-    //What is URCS ?
-    //    URCS *src = (URCS *) ufo_buffer_get_host_array(inputs[1], NULL);
-    //    URCS *dst = (URCS *) ufo_buffer_get_host_array(output, NULL);
+    ufo_profiler_call(profiler,cmd_queue,priv->found_cand,2,mem_size_c,NULL);
 
 
 
-    unsigned nb_elt;// = (unsigned) src->nb_elt;
-
-    unsigned del_count = 0;
+    clEnqueueReadBuffer(cmd_queue,counter,CL_TRUE,0,sizeof(cl_uint),&counter_cpu,0,NULL,NULL);
 
 
+    int* coordinates_cpu = (int*) malloc(sizeof(int) * (2*counter_cpu +2));
 
+    clEnqueueReadBuffer(cmd_queue,coord,CL_TRUE,0,sizeof(cl_int)*counter_cpu*2,coordinates_cpu,0,NULL,NULL);
 
-
-    float* array = ufo_buffer_get_host_array(inputs[1],NULL);
-    //    float* img = ufo_buffer_get_device_array(inputs[1],NULL);
-
-
-    ufo_profiler_call(profiler,cmd_queue,priv->found_cand,1,&mem_size_c,NULL);
-
-    clEnqueueReadBuffer(cmd_queue,counter,CL_TRUE,0,sizeof(guint),counter_cpu,0,NULL,NULL);
-
-    float* coordinates_cpu = (float*) malloc(sizeof(float) * (counter_cpu[0] +1));
-
-    clEnqueueReadBuffer(cmd_queue,coord,CL_TRUE,0,sizeof(cl_float)*counter_cpu[0],coordinates_cpu,0,NULL,NULL);
-
-    printf("FOUND ON GPU %d, threads executed :%d \n\n",counter_cpu[0],mem_size_c);
-
-
-    UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(values_cand));
     UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(coord));
     UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(counter));
 
-    printf("X = %d\t Y = %d\n",a,b);
+    //end of GPU 
+    //Mutlithreading part starts here
+
+
+
+    UfoRingCoordinate URC[counter_cpu]; 
+
+    //Thread
+    pthread_t thr[counter_cpu];
+    azimu_thread thr_data[counter_cpu];
+
+
+    float a_pol[counter_cpu];
+    float b_pol[counter_cpu];
+    float c_pol[counter_cpu];
+
+    unsigned rc;
+
+    //call a thread for each candidate
+    for(unsigned g = 0; g < counter_cpu; g++)
+    {
+        printf("X = %d\tY = %d\n",coordinates_cpu[g << 1], coordinates_cpu[(g << 1) +1]);
+        thr_data[g].tid = g;
+        thr_data[g].center = &URC[g]; //needs to have an connection!!
+        thr_data[g].center->x = (float)coordinates_cpu[g << 1];
+        thr_data[g].center->y = (float)coordinates_cpu[(g << 1) +1];
+        thr_data[g].center->r = 2;
+        thr_data[g].a = &a_pol[g];
+        thr_data[g].b = &b_pol[g];
+        thr_data[g].c = &c_pol[g];        
+        thr_data[g].priv = priv;
+        thr_data[g].image = inputs[0];
+
+        if ((rc = pthread_create(&thr[g], NULL, azimutal_wrapper, &thr_data[g]))) {
+            fprintf(stderr, "error: pthread_create, rc: %d\n", rc);
+        }
+
+
+
+    } 
+
+
+    for(unsigned g = 0; g < counter_cpu;g++)
+    {
+        pthread_join(thr[g],NULL);
+    }
 
     unsigned cnt = 0;
-    unsigned coordinates[a*b];
-    printf("MAXIMUM AMOUNT = %di\n\n", a*b*(priv->radii_range)*priv->displacement);
-    UfoRingCoordinate urc[1000*2*(priv->radii_range)*2*priv->displacement]; //array is with me maximum amount of possibe rings
-    unsigned radius_array[priv->radii_range];
 
+    float x_array[counter_cpu];
+    float y_array[counter_cpu];
 
+    for(unsigned g = 0; g < counter_cpu;g++)
+    {
+        //Check if contrat is beneath
+        if(thr_data[g].a[0] <= -priv->threshold)
+        {
+            printf("THR_DATA = %f\n",thr_data[g].a[0]);
+        }
+        else
+        {
+            if(g == 0)
+            {
+                x_array[cnt] = thr_data[g].center->x;
+                y_array[cnt] = thr_data[g].center->y;
 
-    unsigned displacement_array[9];    
+                UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
+     
 
-    int dot_counter = 0;
-
-    float values[2*priv->radii_range];   
-    unsigned tmp = 0;
-
-
-    
-
-
-
-                //displacement 
-                //is the displacement ONLY for the found dots ? --> why not use the found dots?
-
-                for(unsigned r = 0; r < 2*priv->radii_range; r++)
-                {
-                    urc[cnt].x = i;
-                    urc[cnt].y = j;
-                    urc[cnt].r = r;
-                    urc[cnt].contrast = 0.0f;
-                    urc[cnt].intensity = 0.0f;
-
-                    //Compute intensity
-                    values[r] = compute_intensity(inputs[0],&urc[cnt], (int) r + priv->radii_range);
-                    //WHY ? 
-                    if(values[r] > values[tmp])
-                    { 
-                        tmp = r;
-                    }
-
+                    //CAUSES SEGMENTATION FAULT 
+        //            dst->coord[cnt].x = thr_data[g].center->x;
+           dst->coord[cnt] = URC_tmp;    
                     cnt++;
+
+            }
+            else
+            {
+                //check if coordinate was set before
+                for(unsigned i = 0; i < cnt;i++)
+                {
+                    if((x_array[i] == thr_data[g].center->x) && (y_array[i] == thr_data[g].center->y))
+                    {
+                        printf("DOUBLE FOUND\n");
+                        break;
+                    }
                 }
 
+                x_array[cnt] = thr_data[g].center->x;
+                y_array[cnt] = thr_data[g].center->y;
+
+                UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
+                //CAUSES SEGMENTATION FAULT  
+            //   dst->coord[cnt] = URC_tmp; 
+                    cnt++;
+
+            }
+        }   
+    }    
+
+    dst->nb_elt = cnt;
+    
 
     free(coordinates_cpu);
 
 
 
-
-
-
-
-
-    nb_elt = cnt;
-    printf("CALLING center search %d times\n",nb_elt);
-    /* Check rings contrast, if it's too low, delete it */
-
-    /*
-       for (unsigned idx = 0; idx < nb_elt; ++idx) {
-       if (!center_search(priv, inputs[0], &src->coord[idx],&dst->coord[idx - del_count]))
-       del_count++;
-       }
-       dst->nb_elt = src->nb_elt - (float) del_count;
-
-     */
     return TRUE;
 }
 
@@ -708,6 +757,6 @@ ufo_multi_search_task_init(UfoMultiSearchTask *self)
 {
     self->priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE(self);
     self->priv->radii_range = 10;
-    self->priv->threshold = 0.05f;
+    self->priv->threshold = 0.5f;
     self->priv->displacement = 5;
 }
