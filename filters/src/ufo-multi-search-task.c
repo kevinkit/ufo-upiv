@@ -25,27 +25,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
-
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
 #include <CL/cl.h>
 #endif
 
-
-
-
-
 #include "ufo-multi-search-task.h"
 #include "ufo-ring-coordinates.h"
 
-
-
- 
-
 void* azimutal_wrapper(void* arg);
-
 
 typedef struct _azimu_thread{
 
@@ -445,8 +434,6 @@ ufo_multi_search_task_process (UfoTask *task,
         UfoRequisition *requisition)
 {
 
-
-
     //GPU SETUP
     UfoGpuNode *node;
     UfoProfiler *profiler;
@@ -465,7 +452,6 @@ ufo_multi_search_task_process (UfoTask *task,
 
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
 
-
     UfoRequisition req;
 
     ufo_buffer_get_requisition(inputs[1],&req);
@@ -481,9 +467,6 @@ ufo_multi_search_task_process (UfoTask *task,
     //is filled before
     in_mem_gpu = ufo_buffer_get_device_array(inputs[1], cmd_queue);
     URCS *dst = (URCS *) ufo_buffer_get_host_array(output, NULL);
-
-
-
 
     ufo_buffer_get_requisition(inputs[1],&req);
 
@@ -504,14 +487,9 @@ ufo_multi_search_task_process (UfoTask *task,
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,1,sizeof(cl_mem),&coord));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,2,sizeof(cl_mem),&counter));
 
-
-
     ufo_profiler_call(profiler,cmd_queue,priv->found_cand,2,mem_size_c,NULL);
 
-
-
     clEnqueueReadBuffer(cmd_queue,counter,CL_TRUE,0,sizeof(cl_uint),&counter_cpu,0,NULL,NULL);
-
 
     int* coordinates_cpu = (int*) malloc(sizeof(int) * (2*counter_cpu +2));
 
@@ -522,9 +500,6 @@ ufo_multi_search_task_process (UfoTask *task,
 
     //end of GPU 
     //Mutlithreading part starts here
-
-
-
     UfoRingCoordinate URC[counter_cpu]; 
 
     //Thread
@@ -572,7 +547,6 @@ ufo_multi_search_task_process (UfoTask *task,
         }
 
     } 
-
 
     for(unsigned g = 0; g < counter_cpu;g++)
     {
@@ -623,14 +597,11 @@ ufo_multi_search_task_process (UfoTask *task,
                 UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
                 dst->coord[cnt] = URC_tmp; 
                 cnt++;
-
             }
         }   
     }    
 
     dst->nb_elt = cnt;
-
-
     free(coordinates_cpu);
  //   free(dst->coord); 
 
@@ -638,7 +609,7 @@ ufo_multi_search_task_process (UfoTask *task,
     return TRUE;
 }
 
-    static void
+static void
 ufo_multi_search_task_set_property (GObject *object,
         guint property_id,
         const GValue *value,
@@ -662,7 +633,7 @@ ufo_multi_search_task_set_property (GObject *object,
     }
 }
 
-    static void
+static void
 ufo_multi_search_task_get_property (GObject *object,
         guint property_id,
         GValue *value,
@@ -686,7 +657,7 @@ ufo_multi_search_task_get_property (GObject *object,
     }
 }
 
-    static void
+static void
 ufo_multi_search_task_finalize (GObject *object)
 {
 
@@ -703,7 +674,7 @@ ufo_multi_search_task_finalize (GObject *object)
 }
 
 
-    static void
+static void
 ufo_task_interface_init (UfoTaskIface *iface)
 {
     iface->setup = ufo_multi_search_task_setup;
@@ -714,7 +685,7 @@ ufo_task_interface_init (UfoTaskIface *iface)
     iface->process = ufo_multi_search_task_process;
 }
 
-    static void
+static void
 ufo_multi_search_task_class_init (UfoMultiSearchTaskClass *klass)
 {
     GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
@@ -750,7 +721,7 @@ ufo_multi_search_task_class_init (UfoMultiSearchTaskClass *klass)
     g_type_class_add_private (gobject_class, sizeof(UfoMultiSearchTaskPrivate));
 }
 
-    static void
+static void
 ufo_multi_search_task_init(UfoMultiSearchTask *self)
 {
     self->priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE(self);
