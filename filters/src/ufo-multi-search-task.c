@@ -385,6 +385,7 @@ create_profile_advanced (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
             }
 
             polyfit (values, max_rad - min_rad + 1, min_rad, a, b, c);
+     //       printf("INSIDE WRAPPER \t X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n",urc.x,urc.y,a[0],b[0],c[0]);
             if (*a <= max_a) {
                 center->x = urc.x;
                 center->y = urc.y;
@@ -545,19 +546,25 @@ ufo_multi_search_task_process (UfoTask *task,
         {
             cnt_err = 0;
         }
-
     } 
 
     for(unsigned g = 0; g < counter_cpu;g++)
     {
         g_thread_join(threads[g]);
+ //       printf("FITTING ON:\tX=%f\tY=%f\tA= %f\tB=%f\tC=%f\n",thr_data[g].center->x,thr_data[g].center->y,a_pol[g],b_pol[g],c_pol[g]);
+
     }
+
+
+
 
     unsigned cnt = 0;
 
     float x_array[counter_cpu];
     float y_array[counter_cpu];
-
+    
+    float* img = ufo_buffer_get_host_array(inputs[0],NULL);
+    float rest_img[counter_cpu];
     dst->coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * counter_cpu);
 
     for(unsigned g = 0; g < counter_cpu;g++)
@@ -565,7 +572,7 @@ ufo_multi_search_task_process (UfoTask *task,
         //Check if contrat is beneath
         if(thr_data[g].a[0] <= -priv->threshold)
         {
-            //can be used for debugging purposes
+//            printf("CONTRAT WAS beneath %f\n", thr_data[g].a[0]);
         }
         else
         {
@@ -576,6 +583,8 @@ ufo_multi_search_task_process (UfoTask *task,
 
                 UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
 
+                printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
+                rest_img[cnt] = img[g]; 
                 dst->coord[cnt] = URC_tmp;    
                 cnt++;
 
@@ -593,7 +602,12 @@ ufo_multi_search_task_process (UfoTask *task,
 
                 x_array[cnt] = thr_data[g].center->x;
                 y_array[cnt] = thr_data[g].center->y;
+    
+                rest_img[cnt] = img[g];
 
+
+                printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
+                printf("PEAK AT (%f,%f)\n",-thr_data[g].b[0]/(2*thr_data[g].a[0]),(4*thr_data[g].a[0]*thr_data[g].c[0] - thr_data[g].b[0]*thr_data[g].b[0])/(4*thr_data[g].a[0]));
                 UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
                 dst->coord[cnt] = URC_tmp; 
                 cnt++;
@@ -601,9 +615,30 @@ ufo_multi_search_task_process (UfoTask *task,
         }   
     }    
 
+    float mean = 0;
+    float std  = 0;
+    //compute mean
+    for(unsigned g = 0; g < cnt; g++)
+    {
+        mean += rest_img[g];
+    }
+
+    mean = mean/cnt;
+
+    for(unsigned g = 0; g < cnt; g++)
+    {
+        std += pow(rest_img[g] - mean,2);
+    }
+
+
+    std = sqrt(std/cnt);
+
+    printf("MEAN = %f\tSTD = %f\tSNR = %f\n",mean,std,mean/std);
+    
+
     dst->nb_elt = cnt;
     free(coordinates_cpu);
- //   free(dst->coord); 
+    free(dst->coord); 
 
 
     return TRUE;
@@ -727,5 +762,5 @@ ufo_multi_search_task_init(UfoMultiSearchTask *self)
     self->priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE(self);
     self->priv->radii_range = 10;
     self->priv->threshold = 0.5f;
-    self->priv->displacement = 5;
+    self->priv->displacement = 1;
 }

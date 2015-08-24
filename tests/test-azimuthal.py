@@ -24,7 +24,7 @@ class UfoJob(UfoJob):
 parms = dict(
     ring_start = 10,
     ring_end = 20,
-    ring_step = 2,
+    ring_step = 1,
 )
 ring_number = (parms['ring_end'] - parms['ring_start']) / parms['ring_step'] + 1
 parms.update(dict(ring_number = ring_number))
