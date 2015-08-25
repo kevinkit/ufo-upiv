@@ -18,8 +18,10 @@
  */
 
 #include "ufo-candidate-sorting-task.h"
-
-
+#include "ufo-ring-coordinates.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -115,7 +117,6 @@ ufo_candidate_sorting_task_process (UfoTask *task,
     UfoRequisition req;    
     cl_command_queue cmd_queue;
     cl_mem in_mem_gpu;
-    cl_mem out_mem_gpu;
     cl_mem coord;
     cl_mem counter;
     cl_int error;
@@ -124,26 +125,64 @@ ufo_candidate_sorting_task_process (UfoTask *task,
     node = UFO_GPU_NODE (ufo_task_node_get_proc_node (UFO_TASK_NODE (task)));
     cmd_queue = ufo_gpu_node_get_cmd_queue (node);
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
-    in_mem_gpu = ufo_buffer_get_device_array(inputs[1], cmd_queue);
-    out_mem_gpu = ufo_buffer_get_device_array(output,cmd_queue);
-    ufo_buffer_get_requisition(inputs[1],&req);
+    in_mem_gpu = ufo_buffer_get_device_array(inputs[0], cmd_queue);
+  
+//    URCS *dst = (URCS*) ufo_buffer_get_host_array(output,NULL);
+  
+    
+
+    ufo_buffer_get_requisition(inputs[0],&req);
     mem_size_c[0] = (size_t) req.dims[0];
     mem_size_c[1] = (size_t) req.dims[1];
-         
+    
     coord = clCreateBuffer(priv->context, CL_MEM_READ_WRITE,sizeof(cl_int) * (2*mem_size_c[0]*mem_size_c[1])  ,NULL,&error);UFO_RESOURCES_CHECK_CLERR(error);
- //   counter = clCreateBuffer(priv->context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,sizeof(cl_uint), &counter_cpu, &error);UFO_RESOURCES_CHECK_CLERR(error);
+    counter = clCreateBuffer(priv->context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,sizeof(cl_uint), &counter_cpu, &error);UFO_RESOURCES_CHECK_CLERR(error);
 
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,0,sizeof(cl_mem),&in_mem_gpu));
-    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,1,sizeof(cl_mem),&out_mem_gpu));
+    UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,1,sizeof(cl_mem),&coord));
     UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->found_cand,2,sizeof(cl_mem),&counter));
 
     ufo_profiler_call(profiler,cmd_queue,priv->found_cand,2,mem_size_c,NULL);
 
-    
+    clEnqueueReadBuffer(cmd_queue,counter,CL_TRUE,0,sizeof(cl_uint),&counter_cpu,0,NULL,NULL);
+
+    int* coordinates_cpu = (int*) malloc(sizeof(int) * (2*counter_cpu +2));
+
+    clEnqueueReadBuffer(cmd_queue,coord,CL_TRUE,0,sizeof(cl_int)*counter_cpu*2,coordinates_cpu,0,NULL,NULL);
+
+    UfoRequisition new_req = {.dims[0] = 1+(unsigned)counter_cpu*sizeof(UfoRingCoordinate)/sizeof(float), .n_dims = 1 };   
+
+
+    URCS* dst = (URCS*) malloc(sizeof(URCS));
+
+    dst->nb_elt = counter_cpu;
+
+   dst->coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * (counter_cpu));
+
+   ufo_buffer_resize(output,&new_req);
+
+    float* res = ufo_buffer_get_host_array(output,NULL);
 
 
 
+    printf("FOUND %d\n",counter_cpu); 
+ 
+    //Manual memcpy---->> Better debugging
+    for(unsigned g = 0; g < counter_cpu;g++)
+    {
+        dst->coord[g].x = coordinates_cpu[g << 1];
+        dst->coord[g].y = coordinates_cpu[(g << 1) +1];
+    }
 
+
+    memcpy(res,dst,(unsigned) (dst->nb_elt) * sizeof (UfoRingCoordinate) + sizeof (float));
+
+   
+    UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(coord));
+    UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(counter));
+   
+    free(coordinates_cpu);
+    free(dst->coord);
     return TRUE;
 }
 
