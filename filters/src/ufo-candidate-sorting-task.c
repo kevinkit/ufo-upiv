@@ -127,10 +127,6 @@ ufo_candidate_sorting_task_process (UfoTask *task,
     profiler = ufo_task_node_get_profiler (UFO_TASK_NODE (task));
     in_mem_gpu = ufo_buffer_get_device_array(inputs[0], cmd_queue);
   
-//    URCS *dst = (URCS*) ufo_buffer_get_host_array(output,NULL);
-  
-    
-
     ufo_buffer_get_requisition(inputs[0],&req);
     mem_size_c[0] = (size_t) req.dims[0];
     mem_size_c[1] = (size_t) req.dims[1];
@@ -152,20 +148,13 @@ ufo_candidate_sorting_task_process (UfoTask *task,
 
     UfoRequisition new_req = {.dims[0] = 1+(unsigned)counter_cpu*sizeof(UfoRingCoordinate)/sizeof(float), .n_dims = 1 };   
 
-
     URCS* dst = (URCS*) malloc(sizeof(URCS));
-
     dst->nb_elt = counter_cpu;
+    dst->coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * (counter_cpu));
 
-   dst->coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * (counter_cpu));
-
-   ufo_buffer_resize(output,&new_req);
+    ufo_buffer_resize(output,&new_req);
 
     float* res = ufo_buffer_get_host_array(output,NULL);
-
-
-
-    printf("FOUND %d\n",counter_cpu); 
  
     //Manual memcpy---->> Better debugging
     for(unsigned g = 0; g < counter_cpu;g++)
@@ -174,9 +163,7 @@ ufo_candidate_sorting_task_process (UfoTask *task,
         dst->coord[g].y = coordinates_cpu[(g << 1) +1];
     }
 
-
     memcpy(res,dst,(unsigned) (dst->nb_elt) * sizeof (UfoRingCoordinate) + sizeof (float));
-
    
     UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(coord));
     UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(counter));
