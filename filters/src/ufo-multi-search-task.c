@@ -24,7 +24,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -101,6 +101,7 @@ ufo_multi_search_task_setup (UfoTask *task,
         UFO_RESOURCES_CHECK_CLERR(clRetainKernel(priv->found_cand));
     }
 
+    UFO_RESOURCES_CHECK_CLERR (clRetainContext (priv->context));
 }
 
 static void
@@ -123,13 +124,13 @@ static guint
 ufo_multi_search_task_get_num_dimensions (UfoTask *task,
         guint input)
 {
-    return 1;
+    return (input == 0) ?  2 : 1;
 }
 
 static UfoTaskMode
 ufo_multi_search_task_get_mode (UfoTask *task)
 {
-    return UFO_TASK_MODE_PROCESSOR | UFO_TASK_MODE_GPU;
+    return UFO_TASK_MODE_PROCESSOR | UFO_TASK_MODE_CPU;
 }
 
 static int
@@ -186,10 +187,18 @@ compute_intensity (UfoBuffer *ufo_image, UfoRingCoordinate *center, int r)
             /* Check if point is on ring */
             if (fabs (sqrtf ((float) (xx + yy)) - (float) r) < 0.5) {
                 intensity += image[x + y * (int) req.dims[0]];
+               
+                if(x + y * (int) req.dims[0] > 262144)
+                    printf("OUTSIDE OF BOUNDARIES \n");
+            
                 ++counter;
             }
         }
     }
+
+    if(counter == 0)
+        getchar();
+
     return intensity / (float) counter;
 }
 
@@ -382,6 +391,7 @@ create_profile_advanced (UfoMultiSearchTaskPrivate *priv, UfoBuffer *image,
                 if (values[r] > values[pic_idx]) {
                     pic_idx = r;
                 }
+         
             }
 
             polyfit (values, max_rad - min_rad + 1, min_rad, a, b, c);
@@ -434,12 +444,162 @@ ufo_multi_search_task_process (UfoTask *task,
         UfoBuffer *output,
         UfoRequisition *requisition)
 {
+    UfoMultiSearchTaskPrivate *priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE (task);
+    URCS* src = (URCS*)ufo_buffer_get_host_array(inputs[1], NULL);
+    unsigned counter_cpu = (unsigned) src->nb_elt;
 
+    g_warning("%d %d", requisition->dims[0], requisition->dims[1]);
+    g_warning("%d", counter_cpu);
+
+    URCS* dst =  g_malloc0(sizeof(URCS)*1);
+    dst->coord =  g_malloc0(sizeof(UfoRingCoordinate) * counter_cpu);
+
+    azimu_thread *thr_data;
+    GThread** threads;
+    float *a_pol;
+    float *b_pol;
+    float *c_pol;
+    GError *err;
+    float *x_array;
+    float *y_array;
+    int cnt;
+    int cnt_err;
+    
+    thr_data = g_malloc0(sizeof(*thr_data) * counter_cpu);
+    threads  = g_malloc0(sizeof(*threads) * counter_cpu);
+    a_pol = g_malloc0(sizeof(*a_pol) *counter_cpu);
+    b_pol = g_malloc0(sizeof(*b_pol) *counter_cpu);
+    c_pol = g_malloc0(sizeof(*c_pol) *counter_cpu);
+    x_array = g_malloc0(sizeof(*x_array) * counter_cpu);
+    y_array = g_malloc0(sizeof(*y_array) * counter_cpu);
+
+    printf("AMOUNT OF THREADS = %d\n",counter_cpu);
+
+    for(unsigned g = 0; g < counter_cpu; g++)
+    {
+        thr_data[g].tid = g;
+        thr_data[g].center = &src->coord[g]; //needs to have an connection!!
+        thr_data[g].center->x = src->coord[g].x;
+        thr_data[g].center->y = src->coord[g].y;
+        thr_data[g].center->r = 2; //Whats the radius normally ?
+        thr_data[g].a = &a_pol[g];
+        thr_data[g].b = &b_pol[g];
+        thr_data[g].c = &c_pol[g];        
+        thr_data[g].priv = priv;
+        thr_data[g].image = inputs[0];
+
+        cnt_err = 0;
+//        threads[g] = g_thread_try_new(NULL, azimutal_wrapper, &thr_data[g], &err);  
+
+        while (threads[g]==NULL && cnt_err < 20) {
+            threads[g] = g_thread_try_new("Myname", azimutal_wrapper, &thr_data[g], &err);   
+        
+            sleep(0.01);
+            cnt_err++;
+        
+        }
+//        if (threads[g] == NULL)
+//            g_warning("Could not create thread %d, error code %d", g, err->code);
+    }
+
+    for(unsigned g = 0; g < counter_cpu;g++)
+    {
+        g_thread_join(threads[g]);
+    }
+
+    /*
+    cnt = 0;
+    int duplicate = 0;
+    for(unsigned g = 0; g < counter_cpu;g++)
+    {
+        //Check if contrat is beneath
+        if(thr_data[g].a[0] <= -priv->threshold)
+        {
+            // printf("CONTRAT WAS beneath %f\n", thr_data[g].a[0]);
+            continue;
+        }
+
+        duplicate = 0;
+        for(unsigned i = 0; i < cnt; i++)
+        {
+            if((x_array[i] == thr_data[g].center->x) && (y_array[i] == thr_data[g].center->y))
+            {
+                duplicate = 1;
+                break;
+            }
+        }
+        if (duplicate == 1) 
+            continue;
+
+     //   x_array[cnt] = thr_data[g].center->x;
+     //   y_array[cnt] = thr_data[g].center->y;
+
+        //UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
+        // dst->coord[cnt] = URC_tmp;
+
+        cnt++;
+    }    
+    */
+
+
+    if(thr_data != NULL)
+    {
+        free(thr_data);
+    }
+
+    if(threads != NULL)
+    {
+        free(threads);
+    }
+
+    if(a_pol != NULL)
+    {
+        free(a_pol);
+    }
+
+    if(b_pol != NULL)
+    {
+        free(b_pol);
+    }
+    
+    if(c_pol != NULL)
+    {
+        free(c_pol);
+    }
+
+    if(x_array != NULL)
+    {
+        free(x_array);
+    }
+
+    if(y_array != NULL)
+    {
+        free(y_array);
+    }
+
+    if(dst->coord != NULL)
+    {
+        free(dst->coord);
+    }
+
+    if(dst != NULL)
+    {
+        free(dst);
+    }
+    return TRUE;
+}
+
+static gboolean
+ufo_multi_search_task_process_2 (UfoTask *task,
+        UfoBuffer **inputs,
+        UfoBuffer *output,
+        UfoRequisition *requisition)
+{
 
     UfoMultiSearchTaskPrivate *priv = UFO_MULTI_SEARCH_TASK_GET_PRIVATE (task);
+    URCS* src = (URCS*)ufo_buffer_get_host_array(inputs[1], NULL);
 
 
-    URCS* src = (URCS*)ufo_buffer_get_host_array(inputs[1],NULL);
     
     unsigned counter_cpu = (unsigned) src->nb_elt;
 
@@ -458,8 +618,8 @@ ufo_multi_search_task_process (UfoTask *task,
     //call a thread for each candidate
     for(unsigned g = 0; g < counter_cpu; g++)
     {
-        thr_data[g].tid = g;
-        thr_data[g].center = &src->coord[g]; //needs to have an connection!!
+/*        thr_data[g].tid = g;
+       thr_data[g].center = &src->coord[g]; //needs to have an connection!!
         thr_data[g].center->x = src->coord[g].x;
         thr_data[g].center->y = src->coord[g].y;
         thr_data[g].center->r = 2; //Whats the radius normally ?
@@ -468,8 +628,8 @@ ufo_multi_search_task_process (UfoTask *task,
         thr_data[g].c = &c_pol[g];        
         thr_data[g].priv = priv;
         thr_data[g].image = inputs[0];
-
-        threads[g] = g_thread_try_new(NULL, azimutal_wrapper,&thr_data[g],&err);   
+*/
+ //       threads[g] = g_thread_try_new(NULL, azimutal_wrapper,&thr_data[g],&err);   
 
         if(threads[g] == NULL)
         {
@@ -490,7 +650,7 @@ ufo_multi_search_task_process (UfoTask *task,
 
     for(unsigned g = 0; g < counter_cpu;g++)
     {
-        g_thread_join(threads[g]);
+   //     g_thread_join(threads[g]);
  //       printf("FITTING ON:\tX=%f\tY=%f\tA= %f\tB=%f\tC=%f\n",thr_data[g].center->x,thr_data[g].center->y,a_pol[g],b_pol[g],c_pol[g]);
 
     }
@@ -498,8 +658,11 @@ ufo_multi_search_task_process (UfoTask *task,
 
 
 
-    URCS dst;
-
+    URCS* dst =  g_malloc0(sizeof(URCS)*1);
+    dst->coord =  g_malloc0(sizeof(UfoRingCoordinate) * counter_cpu);
+    g_warning ("dst is not NULL: %d", dst != NULL);
+    // dst->coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * counter_cpu);
+//    URCS dst;
 
     unsigned cnt = 0;
 
@@ -508,7 +671,7 @@ ufo_multi_search_task_process (UfoTask *task,
     
     float* img = ufo_buffer_get_host_array(inputs[0],NULL);
     float rest_img[counter_cpu];
-    dst.coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * counter_cpu);
+//    dst.coord = (UfoRingCoordinate*) malloc(sizeof(UfoRingCoordinate) * counter_cpu);
 
     for(unsigned g = 0; g < counter_cpu;g++)
     {
@@ -526,9 +689,10 @@ ufo_multi_search_task_process (UfoTask *task,
 
                 UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
 
-                printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
+             //   printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
                 rest_img[cnt] = img[g]; 
-                dst.coord[cnt] = URC_tmp;    
+               dst->coord[cnt] = URC_tmp;    
+   //             dst.coord[cnt] = URC_tmp;
                 cnt++;
 
             }
@@ -549,10 +713,11 @@ ufo_multi_search_task_process (UfoTask *task,
                 rest_img[cnt] = img[g];
 
 
-                printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
-                printf("PEAK AT (%f,%f)\n",-thr_data[g].b[0]/(2*thr_data[g].a[0]),(4*thr_data[g].a[0]*thr_data[g].c[0] - thr_data[g].b[0]*thr_data[g].b[0])/(4*thr_data[g].a[0]));
+              //  printf("X=%f\tY=%f\t\tA=%f\tB=%f\tC=%f\n", x_array[cnt],y_array[cnt], thr_data[g].a[0],thr_data[g].b[0],thr_data[g].c[0]);
+              //  printf("PEAK AT (%f,%f)\n",-thr_data[g].b[0]/(2*thr_data[g].a[0]),(4*thr_data[g].a[0]*thr_data[g].c[0] - thr_data[g].b[0]*thr_data[g].b[0])/(4*thr_data[g].a[0]));
                 UfoRingCoordinate URC_tmp = {thr_data[g].center->x,thr_data[g].center->y,thr_data[g].center->r,0.0f,0.0f};
-                dst.coord[cnt] = URC_tmp; 
+                dst->coord[cnt] = URC_tmp; 
+         //       dst.coord[cnt] = URC_tmp;
                 cnt++;
             }
         }   
@@ -579,18 +744,24 @@ ufo_multi_search_task_process (UfoTask *task,
     printf("MEAN = %f\tSTD = %f\tSNR = %f\n",mean,std,mean/std);
     
 
-    dst.nb_elt = cnt;
+    dst->nb_elt = cnt;
 
-    UfoRequisition new_req = {.dims[0] = 1 + (unsigned) dst.nb_elt * sizeof(UfoRingCoordinate)/sizeof(float), .n_dims = 1};
-    
+//    dst.nb_elt = cnt;
+
+    UfoRequisition new_req = {.dims[0] = 1 + (unsigned) dst->nb_elt * sizeof(UfoRingCoordinate)/sizeof(float), .n_dims = 1};
+//    UfoRequisition new_req = {.dims[0] = 1 + (unsigned) dst.nb_elt * sizeof(UfoRingCoordinate)/sizeof(float), .n_dims = 1};
+
     ufo_buffer_resize(output,&new_req);
     
     float *res = ufo_buffer_get_host_array(output,NULL);
     
-    memcpy(res,&dst,(unsigned) (dst.nb_elt) * sizeof(UfoRingCoordinate) + sizeof(float));
-        
-    free(dst.coord); 
+//    memcpy(res,&dst,(unsigned) (dst.nb_elt) * sizeof(UfoRingCoordinate) + sizeof(float));
+    memcpy(res,dst,(unsigned) (dst->nb_elt) * (sizeof(UfoRingCoordinate) + sizeof(float)));
 
+    free(dst->coord); 
+    free(dst);
+
+//    free(dst.coord);
 
     return TRUE;
 }

@@ -170,6 +170,7 @@ ufo_candidate_sorting_task_process (UfoTask *task,
    
     free(coordinates_cpu);
     free(dst->coord);
+    free(dst);
     return TRUE;
 }
 
