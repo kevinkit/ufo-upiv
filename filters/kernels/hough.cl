@@ -6,19 +6,56 @@ likelihood (global float *output,
             constant int *mask,
             int maskSizeH, 
             int n,
-            __local float *part_pic)
+            __local float *local_mem)
 {
-    const int2 pos = (int2) (get_global_id (0), get_global_id (1));
+    int shift = 6;
+    const int2 global_pos = (int2) (get_global_id (0), get_global_id (1));
 
-    unsigned loc_x = get_local_size(0);
-    unsigned loc_y = get_local_size(1);
+    unsigned loc_size_x = get_local_size(0);
+    unsigned loc_size_y = get_local_size(1);
     
-    unsigned glo_x = get_global_size(0);
-    unsigned glo_y = get_global_size(1);
+    unsigned glo_size_x = get_global_size(0);
+    unsigned glo_size_y = get_global_size(1);
 
 
-    unsigned pos_x = get_local_id(0);
-    unsigned pos_y = get_local_id(1);
+    unsigned loc_x = get_local_id(0);
+    unsigned loc_y = get_local_id(1);
+    unsigned local_id = (shift + loc_y) * loc_size_x + (shift + loc_x);
+
+    local_mem[local_id] = read_imagef(input, smp, global_pos).x; 
+
+    if (loc_x < shift) {
+        local_tmp_id = (shift + loc_y) * loc_size_x + loc_x;
+        local_mem[local_tmp_id] = read_imagef(input, smp, (int2)(global_pos.x - shift, global_pos.y)).x;
+    }
+
+    if (loc_y < shift) {
+        local_tmp_id = loc_y * loc_size_x + (shfit + loc_x);
+        local_mem[local_tmp_id] = read_imagef(input, smp, (int2)(global_pos.x, global_pos.y - shift)).x;
+    }
+
+    if (loc_x + shift >= loc_size_x) {
+        local_tmp_id = (loc_y + shift) * loc_size_x + (shift + loc_x);
+        local_mem[local_tmp_id] = read_imagef(input, smp, (int2)(global_pos.x + shift, global_pos.y)).x;
+    }
+
+    if (loc_y + shift >= loc_size_y) {
+        local_tmp_id = (loc_y + shift) * loc_size_x + (shift + loc_x);
+        local_mem[local_tmp_id] = read_imagef(input, smp, (int2)(global_pos.x, global_pos.y + shift)).x;
+    }
+
+    
+    if (loc_x < shift && loc_y < shift) {
+        local_tmp_id = loc_y * loc_size_x + loc_x;
+        local_mem[local_tmp_id] = read_imagef(input, smp, (int2)(global_pos.x - shift, globa_pos.y -shift)).x;
+    }
+
+   
+    if(loc_x + shift >= loc_size_x && loc_y < shift)
+    {
+        local_tmp_id = loc_y * loc_size + loc_x;
+        local_mem[local_tmp_id] = read_imagef
+    }
    
     //check global boundaries
     if(pos.x > loc_x && pos.y > loc_y && pos_x + pos.x < glo_x && pos_y + pos.y < glo_y)
