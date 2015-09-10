@@ -432,7 +432,6 @@ static unsigned thread_division(unsigned threads, unsigned max_threads,unsigned 
     system("ps -eo nlwp | tail -n +2 | awk '{ num_threads += $1 } END { print num_threads }' > threads.txt");
     FILE *file;
     int ap_threads;
-    unsigned total;
     unsigned g = 1;
     file = fopen("threads.txt","r");
     if(file == NULL)
@@ -465,7 +464,6 @@ static unsigned thread_division(unsigned threads, unsigned max_threads,unsigned 
                 rest[0] = 0;
             }
                 return g;
-            }
         }
 
         printf("Could not find divisor matching the settings \n");
