@@ -82,14 +82,16 @@ ufo_hough_likelihood_task_setup (UfoTask *task,
     priv->masksize_h = (priv->masksize - 1) / 2;
     maskinnersize_h = priv->maskinnersize / 2;
     priv->numones = 0;
-    for (i = 0, i0 = - priv->masksize_h; i < priv->masksize; i++, i0++)
+    for (i = 0, i0 = - priv->masksize_h; i < priv->masksize; i++, i0++){
         for (j = 0, j0 = - priv->masksize_h; j < priv->masksize; j++, j0++)
             if ((i0*i0 + j0*j0) >= maskinnersize_h * maskinnersize_h)
             {
                 mask[i + j*priv->masksize] = 1;
                 priv->numones += 1;
+                printf("[%d] = 1\t",i+j*priv->masksize);
             }
-
+        printf("\n");
+    }
     // debug mask
     /*
      *int *mask0 = mask;
@@ -127,7 +129,7 @@ static guint
 ufo_hough_likelihood_task_get_num_dimensions (UfoTask *task,
                                              guint input)
 {
-    return -1;
+    return 3;
 }
 
 static UfoTaskMode
@@ -187,11 +189,27 @@ ufo_hough_likelihood_task_process (UfoTask *task,
 
     tmp_req.n_dims = 1;
     tmp_req.dims[0] = 1;
+    
+    //it will be 512 --> for debugging
     gsize g_work_size[] = { requisition->dims[0], requisition->dims[1] };
+   
+    int k;
+    clGetDeviceInfo((cl_device_id) 0,CL_DEVICE_MAX_WORK_ITEM_SIZES,sizeof(cl_int),&k,NULL);
+    printf("maximum workgroups per dimension %d\n",k);
 
+    unsigned loc_x = requisition->dims[0]/16;
+    unsigned loc_y = requisition->dims[1]/16;
+
+    gsize g_loc_size[]  = {loc_x,loc_y};
+
+    printf("mask size %d\n",priv->masksize_h);
+    printf("LocalXsize = %d\tLocalYsize = %d\n",loc_x,loc_y);
     out_mem = ufo_buffer_get_device_array (output, cmd_queue);
     tmp_buf = ufo_buffer_new (&tmp_req, priv->context);
 
+    requisition->dims[2] = 1;
+   // g_warning("%d",requisition->dims[2]);
+    //why not creating a three dimensional kernel??
     for (guint n = 0; n < requisition->dims[2]; n++)
     {
         ufo_buffer_copy_region (inputs[0], tmp_buf, n, cmd_queue);
@@ -202,9 +220,14 @@ ufo_hough_likelihood_task_process (UfoTask *task,
         UFO_RESOURCES_CHECK_CLERR (clSetKernelArg (priv->kernel, 2, sizeof(cl_mem), &priv->mask_mem));
         UFO_RESOURCES_CHECK_CLERR (clSetKernelArg (priv->kernel, 3, sizeof(int), &priv->masksize_h));
         UFO_RESOURCES_CHECK_CLERR (clSetKernelArg (priv->kernel, 4, sizeof(guint), &n));
-
-        ufo_profiler_call (profiler, cmd_queue, priv->kernel, 2, g_work_size, NULL);
+   
+        // --> by a size of 8x8
+        //     UFO_RESOURCES_CHECK_CLERR (clSetKernelArg (priv->kernel, 5, sizeof(float) * (5+(4*(priv->masksize_h +1) * (priv->masksize_h + 1))), NULL));
+       
+        UFO_RESOURCES_CHECK_CLERR(clSetKernelArg(priv->kernel,5,sizeof(float) * loc_x * loc_y, NULL));
+        ufo_profiler_call (profiler, cmd_queue, priv->kernel, 2, g_work_size,g_loc_size);
     }
+
 
     g_object_unref(tmp_buf);
 
