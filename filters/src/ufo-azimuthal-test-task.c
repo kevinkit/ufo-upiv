@@ -222,6 +222,7 @@ ufo_azimuthal_test_task_process (UfoTask *task,
 
     float t1=0.0, t2=0.0;
 
+    //This loop will determine the functions 
     for (unsigned i = 0; i < num_cand; i++) {
         int min_r = cand[i].r - priv->radii_range;
         int max_r = cand[i].r + priv->radii_range;
@@ -237,51 +238,73 @@ ufo_azimuthal_test_task_process (UfoTask *task,
         s = gsl_multifit_fdfsolver_alloc (T, max_r - min_r + 1, 3);
         f.n = max_r - min_r + 1;
 
-
+        float save = 0;
+        int x_save,y_save;
         for (int j = - (int) priv->displacement; j < (int) priv->displacement + 1; j++)
-        for (int k = - (int) priv->displacement; k < (int) priv->displacement + 1; k++)
         {
-            UfoRingCoordinate ring = {cand[i].x + j, cand[i].y + k, cand[i].r, 0.0, 0.0};
+            for (int k = - (int) priv->displacement; k < (int) priv->displacement + 1; k++)
+            {
+                UfoRingCoordinate ring = {cand[i].x + j, cand[i].y + k, cand[i].r, 0.0, 0.0};
 
-            g_timer_start(timer);
-            for (int r = min_r; r <= max_r; ++r) {
-                histogram[r-min_r] = compute_intensity(inputs[0], &ring, r);
+                g_timer_start(timer);
+                for (int r = min_r; r <= max_r; ++r) {
+                    histogram[r-min_r] = compute_intensity(inputs[0], &ring, r);
+                }
+                t1 += g_timer_elapsed(timer, NULL);
+
+                struct fitting_data d = {max_r - min_r + 1, histogram};
+                f.params = &d;
+                gsl_multifit_fdfsolver_set(s, &f, &x.vector);
+                int iter = 0;
+
+                g_timer_start(timer);
+                do {
+                    iter++;
+                    status = gsl_multifit_fdfsolver_iterate (s);
+                        
+                    if (status) break;
+
+                    status = gsl_multifit_test_delta (s->dx, s->x, 1e-4, 1e-4);
+                } while (status == GSL_CONTINUE && iter < 50);
+            
+                t2 += g_timer_elapsed(timer, NULL);
+
+/*            
+                g_message(
+                    "histogram = %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f",
+                    histogram[0], histogram[1], histogram[2], histogram[3], histogram[4], 
+                    histogram[5], histogram[6], histogram[7], histogram[8], histogram[9]); 
+                g_message ("iter = %d", iter);
+                g_message ("min_r = %d", min_r);
+                g_message ("A   = %.5f", gsl_vector_get(s->x, 0));
+                g_message ("mu  = %.5f", gsl_vector_get(s->x, 1));
+                g_message ("sig = %.5f", fabs(gsl_vector_get(s->x, 2)));
+  */              
+                float A,sig;
+
+                //needs to be investigated
+                A = fabs(gsl_vector_get(s->x,0));
+                sig = fabs(gsl_vector_get(s->x,2));
+
+                if(A/sig > save) 
+                {
+                    save = A/sig;                
+                    x_save = (int) ring.x;
+                    y_save = (int) ring.y;    
+                }
+                
+              //  g_message ("x = %d y = %d A/sig = %.5f", (int)ring.x, (int)ring.y, gsl_vector_get(s->x, 0) / fabs(gsl_vector_get(s->x, 2)));
             }
-            t1 += g_timer_elapsed(timer, NULL);
+    
 
-            struct fitting_data d = {max_r - min_r + 1, histogram};
-            f.params = &d;
-            gsl_multifit_fdfsolver_set(s, &f, &x.vector);
-            int iter = 0;
-
-            g_timer_start(timer);
-            do {
-                iter++;
-                status = gsl_multifit_fdfsolver_iterate (s);
-                if (status) break;
-
-                status = gsl_multifit_test_delta (s->dx, s->x, 1e-4, 1e-4);
-            } while (status == GSL_CONTINUE && iter < 50);
-            t2 += g_timer_elapsed(timer, NULL);
-
-            g_message(
-                "histogram = %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f",
-                histogram[0], histogram[1], histogram[2], histogram[3], histogram[4], 
-                histogram[5], histogram[6], histogram[7], histogram[8], histogram[9]); 
-
-            g_message ("iter = %d", iter);
-            g_message ("min_r = %d", min_r);
-            g_message ("A   = %.5f", gsl_vector_get(s->x, 0));
-            g_message ("mu  = %.5f", gsl_vector_get(s->x, 1));
-            g_message ("sig = %.5f", fabs(gsl_vector_get(s->x, 2)));
-            g_message ("x = %d y = %d A/sig = %.5f", (int)ring.x, (int)ring.y, gsl_vector_get(s->x, 0) / fabs(gsl_vector_get(s->x, 2)));
         }
-    }
 
-    g_message ("process");
+        g_message("x = %d\ty = %d, A/sig=%f,",x_save,y_save,save);
+    }
+    /*
     g_message ("compute_intensity = %f", t1); 
     g_message ("fitting = %f", t2); 
-
+*/
     g_timer_destroy(timer);
     return TRUE;
 }

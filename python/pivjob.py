@@ -23,7 +23,8 @@ default_parms = dict(
         likelihoodmask = 11,
         likelihoodmaskinner = 6,
         width       = 1024,
-        height      = 1024 )
+        height      = 1024,
+        candi_threshold = 300)
 
 class PivJob(UfoJob):
     def __init__(self, parms={}):
