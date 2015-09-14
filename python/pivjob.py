@@ -59,7 +59,8 @@ class PivJob(UfoJob):
                 masksize=p.likelihoodmask, maskinnersize=p.likelihoodmaskinner)
         self.add_task('cand', 'candidate-sorting', threshold=p.candi_threshold,
                 ring_start=p.ring_start, ring_step=p.ring_step, ring_end=p.ring_end )
-        self.add_task('azimu', 'multi-search')
+        # self.add_task('azimu', 'multi-search')
+        self.add_task('azimu', 'azimuthal-test')
         self.add_copy_task('bc_contrast') 
 
         self.add_task('hessian_kernel', sigma=2.0/sc, width=1024/sc, height=1024/sc)
