@@ -32,55 +32,55 @@ struct _UfoAzimuthalTestTaskPrivate {
 static void ufo_task_interface_init (UfoTaskIface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (UfoAzimuthalTestTask, ufo_azimuthal_test_task, UFO_TYPE_TASK_NODE,
-                         G_IMPLEMENT_INTERFACE (UFO_TYPE_TASK,
-                                                ufo_task_interface_init))
+        G_IMPLEMENT_INTERFACE (UFO_TYPE_TASK,
+            ufo_task_interface_init))
 
 #define UFO_AZIMUTHAL_TEST_TASK_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE((obj), UFO_TYPE_AZIMUTHAL_TEST_TASK, UfoAzimuthalTestTaskPrivate))
 
-enum {
-    PROP_0,
-    PROP_TEST,
-    N_PROPERTIES
-};
+    enum {
+        PROP_0,
+        PROP_TEST,
+        N_PROPERTIES
+    };
 
 static GParamSpec *properties[N_PROPERTIES] = { NULL, };
 
-UfoNode *
+    UfoNode *
 ufo_azimuthal_test_task_new (void)
 {
     return UFO_NODE (g_object_new (UFO_TYPE_AZIMUTHAL_TEST_TASK, NULL));
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_setup (UfoTask *task,
-                       UfoResources *resources,
-                       GError **error)
+        UfoResources *resources,
+        GError **error)
 {
 
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_get_requisition (UfoTask *task,
-                                 UfoBuffer **inputs,
-                                 UfoRequisition *requisition)
+        UfoBuffer **inputs,
+        UfoRequisition *requisition)
 {
     ufo_buffer_get_requisition (inputs[1], requisition);
 }
 
-static guint
+    static guint
 ufo_azimuthal_test_task_get_num_inputs (UfoTask *task)
 {
     return 2;
 }
 
-static guint
+    static guint
 ufo_azimuthal_test_task_get_num_dimensions (UfoTask *task,
-                                             guint input)
+        guint input)
 {
     return (input == 0) ?  2 : 1;
 }
 
-static UfoTaskMode
+    static UfoTaskMode
 ufo_azimuthal_test_task_get_mode (UfoTask *task)
 {
     return UFO_TASK_MODE_PROCESSOR;
@@ -96,7 +96,7 @@ static int max (int l, int r)
     return (l > r) ? l : r;
 }
 
-static void
+    static void
 get_coords(int *left, int *right, int *top, int *bot, int rad,
         UfoRequisition *req, UfoRingCoordinate *center)
 {
@@ -112,7 +112,7 @@ get_coords(int *left, int *right, int *top, int *bot, int rad,
     *bot = min (b, (int) (req->dims[1]) - 1);
 }
 
-static float
+    static float
 compute_intensity (UfoBuffer *ufo_image, UfoRingCoordinate *center, int r)
 {
     float intensity = 0;
@@ -124,7 +124,7 @@ compute_intensity (UfoBuffer *ufo_image, UfoRingCoordinate *center, int r)
     int left, right, top, bot;
     get_coords(&left, &right, &top, &bot, r, &req, center);
     unsigned counter = 0;
-    
+
     for (int y = top; y <= bot; ++y) {
         for (int x = left; x <= right; ++x) {
             int xx = (x - x_center) * (x - x_center);
@@ -139,7 +139,7 @@ compute_intensity (UfoBuffer *ufo_image, UfoRingCoordinate *center, int r)
 
     /*return intensity;*/
 
-    
+
     if(counter != 0)
         return intensity / (float) counter;
     else    
@@ -195,14 +195,13 @@ static int gaussian_fdf (const gsl_vector *x, void *data, gsl_vector *f, gsl_mat
     return GSL_SUCCESS;
 }
 
-static gboolean
+    static gboolean
 ufo_azimuthal_test_task_process (UfoTask *task,
-                         UfoBuffer **inputs,
-                         UfoBuffer *output,
-                         UfoRequisition *requisition)
+        UfoBuffer **inputs,
+        UfoBuffer *output,
+        UfoRequisition *requisition)
 {
     UfoAzimuthalTestTaskPrivate *priv = UFO_AZIMUTHAL_TEST_TASK_GET_PRIVATE (task);
-    GTimer *timer = g_timer_new();
 
     float *in_cpu = ufo_buffer_get_host_array (inputs[1], NULL);
     guint num_cand = (guint) in_cpu[0];
@@ -219,8 +218,10 @@ ufo_azimuthal_test_task_process (UfoTask *task,
     f.df = &gaussian_df;
     f.fdf = &gaussian_fdf;
     f.p = 3;
+    
+    int cnt_new = 0;
+    int x_save,y_save,r_save;
 
-    float t1=0.0, t2=0.0;
 
     //This loop will determine the functions 
     for (unsigned i = 0; i < num_cand; i++) {
@@ -228,7 +229,6 @@ ufo_azimuthal_test_task_process (UfoTask *task,
         int max_r = cand[i].r + priv->radii_range;
         min_r = (min_r < 1) ? 1 : min_r;
 
-        g_message ("************");
         g_message("ring %d %d %d", (int)cand[i].x, (int)cand[i].y, (int)cand[i].r);
 
         float histogram[max_r - min_r + 1];
@@ -239,81 +239,76 @@ ufo_azimuthal_test_task_process (UfoTask *task,
         f.n = max_r - min_r + 1;
 
         float save = 0;
-        int x_save,y_save;
+        cnt_new = 0;
+        short breaker = 0;
         for (int j = - (int) priv->displacement; j < (int) priv->displacement + 1; j++)
         {
             for (int k = - (int) priv->displacement; k < (int) priv->displacement + 1; k++)
             {
                 UfoRingCoordinate ring = {cand[i].x + j, cand[i].y + k, cand[i].r, 0.0, 0.0};
 
-                g_timer_start(timer);
                 for (int r = min_r; r <= max_r; ++r) {
                     histogram[r-min_r] = compute_intensity(inputs[0], &ring, r);
                 }
-                t1 += g_timer_elapsed(timer, NULL);
 
                 struct fitting_data d = {max_r - min_r + 1, histogram};
                 f.params = &d;
                 gsl_multifit_fdfsolver_set(s, &f, &x.vector);
                 int iter = 0;
 
-                g_timer_start(timer);
                 do {
                     iter++;
                     status = gsl_multifit_fdfsolver_iterate (s);
-                        
-                    if (status) break;
-
+                if (status) break;
                     status = gsl_multifit_test_delta (s->dx, s->x, 1e-4, 1e-4);
                 } while (status == GSL_CONTINUE && iter < 50);
-            
-                t2 += g_timer_elapsed(timer, NULL);
 
-/*            
-                g_message(
-                    "histogram = %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f, %.5f",
-                    histogram[0], histogram[1], histogram[2], histogram[3], histogram[4], 
-                    histogram[5], histogram[6], histogram[7], histogram[8], histogram[9]); 
-                g_message ("iter = %d", iter);
-                g_message ("min_r = %d", min_r);
-                g_message ("A   = %.5f", gsl_vector_get(s->x, 0));
-                g_message ("mu  = %.5f", gsl_vector_get(s->x, 1));
-                g_message ("sig = %.5f", fabs(gsl_vector_get(s->x, 2)));
-  */              
-                float A,sig;
+                float tmp_A = (float) gsl_vector_get(s->x,0);
+                float tmp_mu = (float) gsl_vector_get(s->x,2);
 
-                //needs to be investigated
-                A = fabs(gsl_vector_get(s->x,0));
-                sig = fabs(gsl_vector_get(s->x,2));
-
-                if(A/sig > save) 
-                {
-                    save = A/sig;                
-                    x_save = (int) ring.x;
-                    y_save = (int) ring.y;    
+                if(fabs(tmp_A) < (float) 0.1){
+                    breaker = 1;
+                    break;
                 }
-                
-              //  g_message ("x = %d y = %d A/sig = %.5f", (int)ring.x, (int)ring.y, gsl_vector_get(s->x, 0) / fabs(gsl_vector_get(s->x, 2)));
+                else{
+                    float tmp_s = tmp_A/tmp_mu;
+                    if(tmp_s > save){
+                        save = tmp_s;
+                        x_save = (int) ring.x;
+                        y_save = (int) ring.y;    
+                        r_save = (int) ring.r;
+                        cnt_new++;
+                    }
+                }
             }
-    
 
+            if(breaker == 1)
+            {
+                break;
+            }
         }
-
-        g_message("x = %d\ty = %d, A/sig=%f,",x_save,y_save,save);
+    
+        if(breaker != 1 && cnt_new > 0)
+        {
+            FILE *file;
+            file = fopen("testme.txt","a+");
+            if(file == NULL)
+            {
+                printf("ERROR In file management\n");
+            }
+            fprintf(file,"%d\t%d\t%d\t%f\n",x_save,y_save,r_save,save);
+            fclose(file);
+        }
     }
-    /*
-    g_message ("compute_intensity = %f", t1); 
-    g_message ("fitting = %f", t2); 
-*/
-    g_timer_destroy(timer);
+    
     return TRUE;
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_set_property (GObject *object,
-                              guint property_id,
-                              const GValue *value,
-                              GParamSpec *pspec)
+        guint property_id,
+        const GValue *value,
+        GParamSpec *pspec)
 {
     UfoAzimuthalTestTaskPrivate *priv = UFO_AZIMUTHAL_TEST_TASK_GET_PRIVATE (object);
 
@@ -326,11 +321,11 @@ ufo_azimuthal_test_task_set_property (GObject *object,
     }
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_get_property (GObject *object,
-                              guint property_id,
-                              GValue *value,
-                              GParamSpec *pspec)
+        guint property_id,
+        GValue *value,
+        GParamSpec *pspec)
 {
     UfoAzimuthalTestTaskPrivate *priv = UFO_AZIMUTHAL_TEST_TASK_GET_PRIVATE (object);
 
@@ -343,13 +338,13 @@ ufo_azimuthal_test_task_get_property (GObject *object,
     }
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_finalize (GObject *object)
 {
     G_OBJECT_CLASS (ufo_azimuthal_test_task_parent_class)->finalize (object);
 }
 
-static void
+    static void
 ufo_task_interface_init (UfoTaskIface *iface)
 {
     iface->setup = ufo_azimuthal_test_task_setup;
@@ -360,7 +355,7 @@ ufo_task_interface_init (UfoTaskIface *iface)
     iface->process = ufo_azimuthal_test_task_process;
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_class_init (UfoAzimuthalTestTaskClass *klass)
 {
     GObjectClass *oclass = G_OBJECT_CLASS (klass);
@@ -371,10 +366,10 @@ ufo_azimuthal_test_task_class_init (UfoAzimuthalTestTaskClass *klass)
 
     properties[PROP_TEST] =
         g_param_spec_string ("test",
-            "Test property nick",
-            "Test property description blurb",
-            "",
-            G_PARAM_READWRITE);
+                "Test property nick",
+                "Test property description blurb",
+                "",
+                G_PARAM_READWRITE);
 
     for (guint i = PROP_0 + 1; i < N_PROPERTIES; i++)
         g_object_class_install_property (oclass, i, properties[i]);
@@ -382,7 +377,7 @@ ufo_azimuthal_test_task_class_init (UfoAzimuthalTestTaskClass *klass)
     g_type_class_add_private (oclass, sizeof(UfoAzimuthalTestTaskPrivate));
 }
 
-static void
+    static void
 ufo_azimuthal_test_task_init(UfoAzimuthalTestTask *self)
 {
     self->priv = UFO_AZIMUTHAL_TEST_TASK_GET_PRIVATE(self);
