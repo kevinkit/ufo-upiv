@@ -77,6 +77,8 @@ ufo_hough_likelihood_task_setup (UfoTask *task,
 
     if (priv->kernel)
         UFO_RESOURCES_CHECK_CLERR(clRetainKernel(priv->kernel));
+    if (priv->context)
+        UFO_RESOURCES_CHECK_CLERR(clRetainContext(priv->context));
 
     mask = g_malloc0 (priv->masksize * priv->masksize * sizeof (int));
     priv->masksize_h = (priv->masksize - 1) / 2;

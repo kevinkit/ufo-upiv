@@ -2,12 +2,12 @@ const sampler_t smp = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | 
 
 kernel void
 likelihood (global float *output, 
-            read_only image3d_t input, 
-            constant int *mask,
-            int maskSizeH, 
-            int mask_num_ones,
-            int n,
-            local float *local_mem)
+                               read_only image3d_t input, 
+                                           constant int *mask,
+                                                       int maskSizeH, 
+                                                                   int mask_num_ones,
+                                                                               int n,
+                                                                                           local float *local_mem)
 {
     int shift = 6;
 
@@ -95,4 +95,5 @@ likelihood (global float *output,
     unsigned idx = glb_pos.x + glb_pos.y*get_global_size(0) + n*get_global_size(0)*get_global_size(1);
     output[idx] = exp((f - mean)/std);
 }
+
 
