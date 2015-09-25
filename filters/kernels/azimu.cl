@@ -1,4 +1,4 @@
-__kernel void(UfoRingCoordinate* cand, UfoAzimuthalTestTaskPrivate* priv,UfoRingCoordinate* output)
+__kernel void azimu(__global UfoRingCoordinate* cand,__global UfoAzimuthalTestTaskPrivate* priv,__global UfoRingCoordinate* output)
 {
     int id = get_global_id(0);
     short* tmp_pic[512*512];
