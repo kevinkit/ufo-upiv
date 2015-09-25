@@ -118,6 +118,66 @@ static int compare_candidates(UfoRingCoordinate *a, UfoRingCoordinate *b)
     return -1;
 }
 
+static int compare_by_pixels(GList* unsorted_list,int* indexes)
+{
+    unsigned x_len = 512;//(unsigned) req->dims[0];
+    unsigned y_len = 512;//(unsigned) req->dims[1];
+    unsigned length = g_list_length(unsorted_list);
+    int* tmp_pic = g_malloc(sizeof(int) * x_len*y_len);
+    int new_length = 0;
+    for(unsigned i=0;i < length; i++){
+        UfoRingCoordinate* r = g_list_nth_data(unsorted_list,i);
+        printf("X = %d\n",(int) r->x);
+        for(int j=-1;j <= 1;j++){
+            for(int k=-1;k <= 1;k++){
+                if(tmp_pic[(int) (r->x + k  + (r->y +j)*x_len)] == 0){
+                  
+                    tmp_pic[(int) (r->x+k + (r->y +j)*x_len)] = 1;
+                 //   sorted_list = g_list_append(sorted_list,(gpointer) r);
+                    indexes[new_length] = i;
+                    new_length++;
+                }
+                else
+                {
+                 //   unsorted_list = g_list_remove(unsorted_list,r);
+                }
+            }
+        }
+    }
+    g_free(tmp_pic);
+    return new_length;
+}
+/*
+static unsigned compare_list(GList* unsorted_list,GList* sorted_list)
+{
+    unsigned length = (unsigned) g_list_length(unsorted_list);
+    unsigned new_length = 1;
+    sorted_list= g_list_append(sorted_list,&unsorted_list[0]);
+    for(unsigned i=0; i < length; i++){
+        UfoRingCoordinate *r = g_list_nth_data(unsorted_list,i);
+        for(unsigned z=0; z < new_length;z++){
+            UfoRingCoordinate *u = g_list_nth_data(sorted_list,z);
+                for(int j=-1;j <= 1; j++){
+                    for(int k=-1; k <=1;k++){
+                        if(r->x +k == u->x && r->y+j == u->y){
+                           //  printf("%d = %d and %d = %d\n",(int) r->x +k,(int) u->x,(int) r->y,(int) u->y+j);
+                                printf("equal\n");
+                            
+                        }
+                        else{
+                          printf("not equal\n");
+                        sorted_list = g_list_append(sorted_list, r);
+                        new_length++;
+                        }
+                    }
+                }    
+            }
+        }
+    return new_length;
+}
+*/
+
+
 static gboolean
 ufo_candidate_sorting_task_process (UfoTask *task,
                          UfoBuffer **inputs,
@@ -170,49 +230,61 @@ ufo_candidate_sorting_task_process (UfoTask *task,
 
     GList *cand_list = NULL;
     UfoRingCoordinate *rings = (UfoRingCoordinate*) cand_cpu; 
+/*
+//    g_message ("number of candidate %d", num_cand);
+    unsigned x_len = 512;
+    unsigned y_len = 512;
 
-    g_message ("number of candidate %d", num_cand);
+    short* tmp_pic = g_malloc0(sizeof(short) * x_len *y_len);
+    
+    for(unsigned i=0; i < num_cand;i++)
+    {
+        rings[i].r = priv->ring_start + priv->ring_step * rings[i].r;
+        for(int j=-1;j <=1;j++){
+            for(int k=-1;k <= 1;k++){
+                int pos = (int) ((rings[i].x + k) + (rings[i].y + j)*x_len);
+                if(tmp_pic[pos] == 0)
+                {
+                    cand_list = g_list_append(cand_list,(gpointer) &rings[i]);
+                    tmp_pic[pos] = 1;
+                }
+                else
+                {
+                   // tmp_pic[pos] = 1;
+
+                }
+            }
+        }
+    }
+*/
+
 
     for(unsigned i = 0; i < num_cand; i++) {
         rings[i].r = priv->ring_start + priv->ring_step * rings[i].r;
         cand_list = g_list_append(cand_list, (gpointer) &rings[i]);
     }
 
-    // filter candidate neighbours
-    GList *current, *next;
 
-    for (current = cand_list; current->next;) {
-        next = current->next;
-        UfoRingCoordinate *r = (UfoRingCoordinate*) current->data;
-        UfoRingCoordinate *s = (UfoRingCoordinate*) next->data;
-        int t = compare_candidates(r, s);
-        switch (t) {
-            case 0:
-                cand_list = g_list_remove_link(cand_list, current);
-                current = next;
-                break;
-            case 1:
-                cand_list = g_list_remove_link(cand_list, next);
-                break;
-            default:
-                current = next;
-                break;
-        }
-    }
 
+
+
+
+
+
+
+
+  //  g_free(tmp_pic);
     num_cand = g_list_length(cand_list);
-
-    g_message ("number of candidate %d", num_cand);
-
+//    g_message ("number of candidates after: %d", g_list_length(cand_list)); 
     req.n_dims = 1;
-    req.dims[0] = 1 + num_cand * sizeof(UfoRingCoordinate) / sizeof (float);
+    req.dims[0] = 1 + num_cand * sizeof(UfoRingCoordinate)/sizeof (float);
     ufo_buffer_resize(output, &req);
 
     float* res = ufo_buffer_get_host_array(output,NULL);
     res[0] = num_cand;
     rings = (UfoRingCoordinate*) &res[1];
-
     UfoRingCoordinate *r;
+
     for (unsigned i = 0; i < num_cand; i++) 
     {
         r = g_list_nth_data (cand_list, i);
@@ -221,7 +293,19 @@ ufo_candidate_sorting_task_process (UfoTask *task,
 
     g_object_unref (cand_buf);
     UFO_RESOURCES_CHECK_CLERR(clReleaseMemObject(counter));
+/*
+    FILE *file;
+    file = fopen("cand.txt","a+");
+    if(file == NULL)
+        printf("ERROR\n");
 
+    for(unsigned i=0;i < num_cand; i++)
+    {
+        fprintf(file,"%d\t%d\t%f\n",(int) rings[i].x,(int) rings[i].y,rings[i].r);
+    }
+
+    fclose(file);
+*/
     return TRUE;
 }
 
