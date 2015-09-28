@@ -226,11 +226,9 @@ static int compare_candidates(UfoRingCoordinate* a, UfoRingCoordinate *b)
           if (a->contrast > b->contrast)
             return 0;
     }
-    else
-    {
+    else{
         return 1;
     }
-
 }
 
 static void gaussian_thread(gpointer data, gpointer user_data)
@@ -272,12 +270,9 @@ static void gaussian_thread(gpointer data, gpointer user_data)
         for (int k = - (int) priv->displacement; k < (int) priv->displacement + 1; k++){
 
         int breaker = 0; 
-//        G_LOCK(binary_pic);
-//        g_static_mutex_lock(parm->mutex);
         g_mutex_lock(parm->mutex);
         int pos = (int) ring->x + k + (ring->y + j)* parm->x_len;
         if(tmp_pic[pos] == 1){
-           // continue;
            breaker = 1;
         } 
         if(p_ring != NULL){
@@ -287,7 +282,6 @@ static void gaussian_thread(gpointer data, gpointer user_data)
         }
         if(n_ring != NULL){
             if(compare_candidates(ring,n_ring) == 0)
-           //     continue;
             breaker = 1;
         }
 
@@ -295,7 +289,7 @@ static void gaussian_thread(gpointer data, gpointer user_data)
         {
             tmp_pic[pos] = 1;
         }
-  //      g_static_mutex_lock(parm->mutex);
+
         g_mutex_unlock(parm->mutex);
         if(breaker == 1)
             continue;
