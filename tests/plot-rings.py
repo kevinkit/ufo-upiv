@@ -6,6 +6,7 @@ from tifffile import tifffile as tif
 from scipy import misc
 import math
 import matplotlib.pyplot as plt
+import Image
 
 try:
     first = tif.imread(sys.argv[1]);
@@ -14,7 +15,10 @@ except IndexError:
 except IOError:
     sys.exit('correct path?')
 except ValueError:
-    sys.exit('require tif file')
+    try:
+        first = Image.open(sys.argv[1]);
+    except:
+        sys.exit("Requrie tif or png file");
 except:
     sys.exit('unknown error')
 
